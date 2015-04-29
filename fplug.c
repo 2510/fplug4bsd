@@ -14,6 +14,7 @@ int stdin_out = -1;
 int stdout_in = -1;
 
 int tid;
+int interval;
 
 void dprintf(const char *fmt, ...) {
   if (debug) {
@@ -34,6 +35,10 @@ void dump(const void *p, size_t length) {
       fprintf(stderr, "%02X ", c[offset + offset2]);
     fprintf(stderr, "\n");
   }
+}
+
+int plug_connected(void) {
+  return child_pid != -1;
 }
 
 int plug_connect(const char *device) {
@@ -230,6 +235,13 @@ int main(int argc, const char *argv[]) {
     if (argv[pos][0] == '-') {
       if (strcmp(argv[pos], "--debug") == 0) {
 	debug = 1;
+      } else if (strcmp(argv[pos], "--interval") == 0) {
+	if (pos + 1 == argc) {
+	  fprintf(stderr, "Insufficient argument for interval.\n");
+	  return 1;
+	}
+	interval = atoi(argv[pos + 1]);
+	pos++;
       } else if (strcmp(argv[pos], "-h") == 0) {
 	human_readable = 1;
       } else {
@@ -248,16 +260,38 @@ int main(int argc, const char *argv[]) {
     return 1;
   }
 
-  if (plug_connect(device)) {
-    return 1;
-  }
-  if (!plug_query_power_consumption(&value)) {
-    if (human_readable) {
-      printf("Power Consumption: %.1fW\n", value);
-    } else {
-      printf("%.1f\n", value);
+  if (interval == 0) {
+    if (plug_connect(device)) {
+      return 1;
+    }
+    if (!plug_query_power_consumption(&value)) {
+      if (human_readable) {
+	printf("Power Consumption: %.1fW\n", value);
+      } else {
+	printf("%.1f\n", value);
+      }
+    }
+    plug_disconnect();
+  } else {
+    while (1) {
+      if (!plug_connected()) {
+	if (!plug_connect(device)) {
+	  goto retry;
+	}
+      }
+      if (!plug_query_power_consumption(&value)) {
+	if (human_readable) {
+	  printf("Power Consumption: %.1fW\n", value);
+	} else {
+	  printf("%.1f\n", value);
+	}
+      } else {
+	plug_disconnect();
+      }
+
+    retry:
+      sleep(interval);
     }
   }
-  plug_disconnect();
   return 0;
 }
