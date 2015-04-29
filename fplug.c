@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/ioctl.h>
 #include <sys/wait.h>
 
 int debug = 0;
@@ -63,6 +64,11 @@ int plug_connect(const char *device) {
     // child process
     char *child_path = "/usr/bin/rfcomm_sppd";
     char *child_argv[3] = { child_path, "-a", strdup(device) };
+    int ttyfd;
+    
+    ttyfd = open("/dev/tty", O_RDWR);
+    ioctl(ttyfd, TIOCNOTTY, NULL);
+    
     close(0);
     close(1);
     close(stdin_pipe[1]);
@@ -219,8 +225,10 @@ int plug_query_power_consumption(float *value) {
     }
 
   outsync:
-    fprintf(stderr, "Unexpected response: ");
-    dump(response, length);
+    if (length > 0) {
+      fprintf(stderr, "Unexpected response: ");
+      dump(response, length);
+    }
     plug_disconnect();
     return -1;
   }
@@ -275,7 +283,7 @@ int main(int argc, const char *argv[]) {
   } else {
     while (1) {
       if (!plug_connected()) {
-	if (!plug_connect(device)) {
+	if (plug_connect(device)) {
 	  goto retry;
 	}
       }
@@ -285,6 +293,7 @@ int main(int argc, const char *argv[]) {
 	} else {
 	  printf("%.1f\n", value);
 	}
+	fflush(stdout);
       } else {
 	plug_disconnect();
       }
