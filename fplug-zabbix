@@ -1,0 +1,17 @@
+#!/bin/sh
+
+FPLUG=/usr/local/bin/fplug
+FPLUG_BTADDR=$1
+ZABBIX_SENDER=/usr/local/bin/zabbix_sender
+ZABBIX_SERVER=$2
+ZABBIX_HOST=$3
+ZABBIX_ITEM=$4
+INTERVAL=$5
+
+${FPLUG} --interval ${INTERVAL} ${FPLUG_BTADDR} | \
+while true; do (
+  read value
+  ${ZABBIX_SENDER} -z ${ZABBIX_SERVER} -s ${ZABBIX_HOST} -k ${ZABBIX_ITEM} -o "${value}" -r
+  sleep 1
+)
+done

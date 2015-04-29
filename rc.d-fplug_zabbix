@@ -1,0 +1,57 @@
+#!/bin/sh
+
+# PROVIDE: fplug-zabbix
+# REQUIRE: bluetooth hcsecd
+# BEFORE:
+# KEYWORD: shutdown
+#
+# example:
+#  fplug_zabbix_enable=YES
+#  fplug_zabbix_server=1.2.3.4
+#  fplug_zabbix_interval=30
+#  fplug_zabbix_targets=fplug1
+#  fplug_zabbix_fplug1_btaddr=fplug1
+#  fplug_zabbix_fplug1_host=dummyhost
+#  fplug_zabbix_fplug1_item=item1
+#  fplug_zabbix_fplug1_interval=15
+
+. /etc/rc.subr
+
+name=fplug_zabbix
+rcvar=fplug_zabbix_enable
+start_cmd="fplug_zabbix_start"
+stop_cmd="fplug_zabbix_stop"
+
+fplug_zabbix_start()
+{
+    for _target in ${fplug_zabbix_targets}
+    do
+        _pidfile=/var/run/fplug-zabbix-${_target}.pid
+        eval _btaddr=\"\${fplug_zabbix_${_target}_btaddr}\"
+        eval _host=\"\${fplug_zabbix_${_target}_host}\"
+        eval _item=\"\${fplug_zabbix_${_target}_item}\"
+        eval _interval=\"\${fplug_zabbix_${_target}_interval}\"
+	if [ -z "${_interval}" ]; then
+	    _interval=${fplug_zabbix_interval}
+	fi
+        daemon -f -P ${_pidfile} /usr/local/bin/fplug-zabbix ${_btaddr} ${fplug_zabbix_server} ${_host} ${_item} ${_interval}
+    done
+}
+
+fplug_zabbix_stop()
+{
+    for _target in ${fplug_zabbix_targets}
+    do
+        _pidfile=/var/run/fplug-zabbix-${_target}.pid
+	if [ -e "${_pidfile}" ]; then
+	    kill `cat "${_pidfile}"`
+	    rm -f "${_pidfile}"
+	fi
+    done
+}
+
+load_rc_config $name
+
+: ${fplug_zabbix_enable:="NO"}
+
+run_rc_command "$1"
