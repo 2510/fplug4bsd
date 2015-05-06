@@ -63,7 +63,7 @@ int plug_connect(const char *device) {
   if (child == 0) {
     // child process
     char *child_path = "/usr/bin/rfcomm_sppd";
-    char *child_argv[3] = { child_path, "-a", strdup(device) };
+    char *child_argv[] = { child_path, "-a", strdup(device), NULL };
     int ttyfd;
     
     ttyfd = open("/dev/tty", O_RDWR);
