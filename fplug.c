@@ -226,7 +226,7 @@ int plug_query_power_consumption(float *value) {
 
   outsync:
     if (length > 0) {
-      fprintf(stderr, "Unexpected response: ");
+      fprintf(stderr, "Unexpected response:\n");
       dump(response, length);
     }
     plug_disconnect();
