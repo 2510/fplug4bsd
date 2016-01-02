@@ -17,6 +17,12 @@ int stdout_in = -1;
 int tid;
 int interval;
 
+typedef struct {
+  size_t length;
+  unsigned char *data;
+  unsigned char *mask;
+} response_pattern_t;
+
 void dprintf(const char *fmt, ...) {
   if (debug) {
     va_list args;
@@ -161,75 +167,71 @@ ssize_t plug_write(const void *buf, size_t len) {
   return result;
 }
 
-int plug_query_power_consumption(float *value) {
-  unsigned char query[] = { 0x10, 0x81, 0x00, 0x00,  0x0E, 0xF0, 0x00,  0x00, 0x22, 0x00,  0x62, 0x01, 0xE2, 0x00 };
-  query[2] = tid & 0xFF;
-  query[3] = (tid >> 8) & 0xFF;
+int plug_communicate(const void *request, size_t request_length, response_pattern_t *patterns, size_t pattern_count, unsigned char *response, size_t max_response_length) {
+  size_t index;
+  size_t response_length = 0;
+  unsigned char *local_request = alloca(request_length);
+
+  memcpy(local_request, request, request_length);
+  local_request[2] = tid & 0xFF;
+  local_request[3] = (tid >> 8) & 0xFF;
   tid = (tid + 1) & 0xFFFF;
-  
-  if (plug_write(query, sizeof(query)) != sizeof(query)) {
+
+  if (plug_write(local_request, request_length) != request_length) {
     perror("write");
     return -1;
   }
 
   while (1) {
-    unsigned char response[64];
-    int length;
-    length = plug_read(response, 10);
-    if (length < 10) {
-      perror("read");
-      goto outsync;
-    }
-    if (response[0] != 0x10 || response[1] != 0x81) {
-      goto outsync;
-    }
-    if (response[2] != query[2] || response[3] != query[3]) {
-      /* unexpected TID */
-      continue;
-    }
-    if (response[4] != 0x00 || response[5] != 0x22 || response[6] != 0x00 || 
-	response[7] != 0x0E || response[8] != 0xF0 || response[9] != 0x00) {
-      /* unexpected response */
-      goto outsync;
-    }
-    length += plug_read(&response[10], 1);
-    if (length < 11) {
-      perror("read");
-      goto outsync;
-    }
-    if (response[10] == 0x72) {
-      /* query success */
-      length += plug_read(&response[11], 5);
-      if (length < 16) {
-	perror("read");
-	goto outsync;
-      }
-      if (response[11] != 0x01 || response[12] != 0xE2 || response[13] != 0x02) {
-	goto outsync;
-      }
-      *value = (response[14] | (response[15] << 8)) / 10.0f;
-      return 0;
-    } else if(response[10] == 0x52) {
-      /* query failed */
-      length += plug_read(&response[11], 3);
-      if (length < 16) {
-	perror("read");
-	goto outsync;
-      }
-      if (response[11] != 0x01 || response[12] != 0xE2 || response[13] != 0x00) {
-	goto outsync;
-      }
+    int index;
+    if (response_length >= max_response_length) {
+      dprintf("Read overrrun.\n");
       return -1;
-    } else {
-      goto outsync;
     }
+    if (plug_read(&response[response_length], 1) != 1) {
+      perror("read");
+      return -1;
+    }
+    response_length++;
+    for (index = 0; index < pattern_count; index++) {
+      response_pattern_t *pattern = &patterns[index];
+      if (pattern->length == response_length) {
+	size_t index2;
+	int match = 1;
+	for (index2 = 0; index2 < response_length; index2++) {
+	  if ((pattern->data[index2] & pattern->mask[index2]) != (response[index2] & pattern->mask[index2])) {
+	    match = 0;
+	    break;
+	  }
+	}
+	if (match) {
+	  dprintf("Pattern %d matched.\n", index);
+	  return index;
+	}
+      }
+    }
+  }
+}
 
-  outsync:
-    if (length > 0) {
-      fprintf(stderr, "Unexpected response:\n");
-      dump(response, length);
-    }
+int plug_query_power_consumption(float *value) {
+  unsigned char request[]        = { 0x10, 0x81, 0x00, 0x00,  0x0E, 0xF0, 0x00,  0x00, 0x22, 0x00,  0x62, 0x01, 0xE2, 0x00 };
+  unsigned char response1_data[] = { 0x10, 0x81, 0x00, 0x00,  0x00, 0x22, 0x00,  0x0E, 0xF0, 0x00,  0x72, 0x01, 0xE2, 0x02,  0x00, 0x00 };
+  unsigned char response1_mask[] = { 0xFF, 0xFF, 0x00, 0x00,  0xFF, 0xFF, 0xFF,  0xFF, 0xFF, 0xFF,  0xFF, 0xFF, 0xFF, 0xFF,  0x00, 0x00 };
+  unsigned char response2_data[] = { 0x10, 0x81, 0x00, 0x00,  0x00, 0x22, 0x00,  0x0E, 0xF0, 0x00,  0x52, 0x01, 0xE2, 0x00 };
+  unsigned char response2_mask[] = { 0xFF, 0xFF, 0x00, 0x00,  0xFF, 0xFF, 0xFF,  0xFF, 0xFF, 0xFF,  0xFF, 0xFF, 0xFF, 0xFF };
+  response_pattern_t patterns[] = {
+    { sizeof(response1_data), response1_data, response1_mask },
+    { sizeof(response2_data), response2_data, response2_mask }
+  };
+  unsigned char response[64];
+  int response_index = plug_communicate(request, sizeof(request), patterns, sizeof(patterns) / sizeof(patterns[0]), response, sizeof(response));
+  if (response_index == 0) {
+    *value = (response[14] | (response[15] << 8)) / 10.0f;
+    return 0;
+  } else if (response_index < 0) {
     plug_disconnect();
+    return -1;
+  } else {
     return -1;
   }
 }
