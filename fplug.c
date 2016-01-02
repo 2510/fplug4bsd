@@ -236,10 +236,79 @@ int plug_query_power_consumption(float *value) {
   }
 }
 
+int plug_query_temperature(float *value) {
+  unsigned char request[]        = { 0x10, 0x81, 0x00, 0x00,  0x0E, 0xF0, 0x00,  0x00, 0x11, 0x00,  0x62, 0x01, 0xE0, 0x00 };
+  unsigned char response1_data[] = { 0x10, 0x81, 0x00, 0x00,  0x00, 0x11, 0x00,  0x0E, 0xF0, 0x00,  0x72, 0x01, 0xE0, 0x02,  0x00, 0x00 };
+  unsigned char response1_mask[] = { 0xFF, 0xFF, 0x00, 0x00,  0xFF, 0xFF, 0xFF,  0xFF, 0xFF, 0xFF,  0xFF, 0xFF, 0xFF, 0xFF,  0x00, 0x00 };
+  unsigned char response2_data[] = { 0x10, 0x81, 0x00, 0x00,  0x00, 0x22, 0x00,  0x0E, 0xF0, 0x00,  0x52, 0x01, 0xE0, 0x00 };
+  unsigned char response2_mask[] = { 0xFF, 0xFF, 0x00, 0x00,  0xFF, 0xFF, 0xFF,  0xFF, 0xFF, 0xFF,  0xFF, 0xFF, 0xFF, 0xFF };
+  response_pattern_t patterns[] = {
+    { sizeof(response1_data), response1_data, response1_mask },
+    { sizeof(response2_data), response2_data, response2_mask }
+  };
+  unsigned char response[64];
+  int response_index = plug_communicate(request, sizeof(request), patterns, sizeof(patterns) / sizeof(patterns[0]), response, sizeof(response));
+  if (response_index == 0) {
+    *value = (response[14] | (response[15] << 8)) / 10.0f;
+    return 0;
+  } else if (response_index < 0) {
+    plug_disconnect();
+    return -1;
+  } else {
+    return -1;
+  }
+}
+
+int plug_query_humidity(float *value) {
+  unsigned char request[]        = { 0x10, 0x81, 0x00, 0x00,  0x0E, 0xF0, 0x00,  0x00, 0x12, 0x00,  0x62, 0x01, 0xE0, 0x00 };
+  unsigned char response1_data[] = { 0x10, 0x81, 0x00, 0x00,  0x00, 0x12, 0x00,  0x0E, 0xF0, 0x00,  0x72, 0x01, 0xE0, 0x01, 0x00, 0x00 };
+  unsigned char response1_mask[] = { 0xFF, 0xFF, 0x00, 0x00,  0xFF, 0xFF, 0xFF,  0xFF, 0xFF, 0xFF,  0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00 };
+  unsigned char response2_data[] = { 0x10, 0x81, 0x00, 0x00,  0x00, 0x22, 0x00,  0x0E, 0xF0, 0x00,  0x52, 0x01, 0xE0, 0x00 };
+  unsigned char response2_mask[] = { 0xFF, 0xFF, 0x00, 0x00,  0xFF, 0xFF, 0xFF,  0xFF, 0xFF, 0xFF,  0xFF, 0xFF, 0xFF, 0xFF };
+  response_pattern_t patterns[] = {
+    { sizeof(response1_data), response1_data, response1_mask },
+    { sizeof(response2_data), response2_data, response2_mask }
+  };
+  unsigned char response[64];
+  int response_index = plug_communicate(request, sizeof(request), patterns, sizeof(patterns) / sizeof(patterns[0]), response, sizeof(response));
+  if (response_index == 0) {
+    *value = response[14];
+    return 0;
+  } else if (response_index < 0) {
+    plug_disconnect();
+    return -1;
+  } else {
+    return -1;
+  }
+}
+
+int cycle(void) {
+  float power_consumption, temperature, humidity;
+  if (plug_query_power_consumption(&power_consumption)) {
+    return -1;
+  }
+  if (plug_query_temperature(&temperature)) {
+    return -1;
+  }
+  if (plug_query_humidity(&humidity)) {
+    return -1;
+  }
+  if (human_readable) {
+    printf("Power Consumption: %.1fW\n", power_consumption);
+    printf("Temperature: %.1fW\n", temperature);
+    printf("Humidity: %.1fW\n", temperature);
+  } else {
+    printf("%.1f ", power_consumption);
+    printf("%.1f ", temperature);
+    printf("%.1f\n", humidity);
+  }
+  fflush(stdout);
+  return 0;
+}
+
 int main(int argc, const char *argv[]) {
   const char *device = NULL;
   int pos;
-  float value;
 
   for (pos = 1; pos < argc; pos ++) {
     if (argv[pos][0] == '-') {
@@ -274,13 +343,7 @@ int main(int argc, const char *argv[]) {
     if (plug_connect(device)) {
       return 1;
     }
-    if (!plug_query_power_consumption(&value)) {
-      if (human_readable) {
-	printf("Power Consumption: %.1fW\n", value);
-      } else {
-	printf("%.1f\n", value);
-      }
-    }
+    cycle();
     plug_disconnect();
   } else {
     while (1) {
@@ -289,16 +352,7 @@ int main(int argc, const char *argv[]) {
 	  goto retry;
 	}
       }
-      if (!plug_query_power_consumption(&value)) {
-	if (human_readable) {
-	  printf("Power Consumption: %.1fW\n", value);
-	} else {
-	  printf("%.1f\n", value);
-	}
-	fflush(stdout);
-      } else {
-	plug_disconnect();
-      }
+      cycle();
 
     retry:
       sleep(interval);
