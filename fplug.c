@@ -255,7 +255,7 @@ int main(int argc, const char *argv[]) {
       } else if (strcmp(argv[pos], "-h") == 0) {
 	human_readable = 1;
       } else {
-	fprintf(stderr, "Unknown option: %s", argv[pos]);
+	fprintf(stderr, "Unknown option: %s\n", argv[pos]);
       }
     } else {
       if (device) {
